@@ -25,6 +25,8 @@ CREATE TABLE stops (
                 stop_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 stop_name TEXT,
                 daily_passengers REAL,
-                annual_passengers REAL
+                annual_passengers REAL,
+                lat REAL,
+                lon REAL
             );
 

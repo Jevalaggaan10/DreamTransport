@@ -4,11 +4,13 @@ import sys
 import csv
 import math
 import json
+import time
 import sqlite3
 from datetime import datetime
 from typing import Dict, List, Optional, Tuple
 
 import pandas as pd
+import requests
 
 
 def normalize_whitespace(value: Optional[str]) -> Optional[str]:
@@ -109,7 +111,9 @@ def time_to_seconds(value: Optional[str]) -> Optional[int]:
     return hh * 3600 + mm * 60
 
 
-def sniff_csv_dialect(file_path: str, encoding_candidates: List[str]) -> Tuple[str, csv.Dialect]:
+def sniff_csv_dialect(
+    file_path: str, encoding_candidates: List[str]
+) -> Tuple[str, csv.Dialect]:
     for enc in encoding_candidates:
         try:
             with open(file_path, "r", encoding=enc, errors="ignore") as f:
@@ -128,6 +132,7 @@ def sniff_csv_dialect(file_path: str, encoding_candidates: List[str]) -> Tuple[s
                         if c > best_count:
                             best = delim
                             best_count = c
+
                     class Simple(csv.Dialect):
                         delimiter = best or ","
                         quotechar = '"'
@@ -135,9 +140,11 @@ def sniff_csv_dialect(file_path: str, encoding_candidates: List[str]) -> Tuple[s
                         skipinitialspace = True
                         lineterminator = "\n"
                         quoting = csv.QUOTE_MINIMAL
+
                     return enc, Simple
         except Exception:
             continue
+
     # Default
     class Default(csv.Dialect):
         delimiter = ","
@@ -146,15 +153,33 @@ def sniff_csv_dialect(file_path: str, encoding_candidates: List[str]) -> Tuple[s
         skipinitialspace = True
         lineterminator = "\n"
         quoting = csv.QUOTE_MINIMAL
+
     return "utf-8", Default
 
 
 def find_header_row(lines: List[str], delimiter: str) -> int:
     # Look for a row that contains any of expected header keywords
     header_keywords = [
-        "linie", "route", "lin", "haltestelle", "halt", "stop", "betriebstag", "datum",
-        "soll", "ist", "versp", "abweich", "delay", "fahrtdatum", "fahrtnummer", "trip",
-        "sequenz", "reihenfolge", "ankunft", "abfahrt"
+        "linie",
+        "route",
+        "lin",
+        "haltestelle",
+        "halt",
+        "stop",
+        "betriebstag",
+        "datum",
+        "soll",
+        "ist",
+        "versp",
+        "abweich",
+        "delay",
+        "fahrtdatum",
+        "fahrtnummer",
+        "trip",
+        "sequenz",
+        "reihenfolge",
+        "ankunft",
+        "abfahrt",
     ]
     for idx, line in enumerate(lines):
         cells = [c.strip().lower() for c in line.split(delimiter)]
@@ -169,7 +194,9 @@ def find_header_row(lines: List[str], delimiter: str) -> int:
 
 
 def read_punctuality_csv(file_path: str) -> pd.DataFrame:
-    enc, dialect = sniff_csv_dialect(file_path, ["utf-8-sig", "utf-8", "cp1252", "latin1"])
+    enc, dialect = sniff_csv_dialect(
+        file_path, ["utf-8-sig", "utf-8", "cp1252", "latin1"]
+    )
     with open(file_path, "r", encoding=enc, errors="ignore") as f:
         raw = f.read().splitlines()
     header_idx = find_header_row(raw[:50], getattr(dialect, "delimiter", ","))
@@ -200,7 +227,9 @@ def find_column(candidates: List[str], cols: List[str]) -> Optional[str]:
     for c in cols:
         norm = normalize_whitespace(c)
         low = norm.lower() if isinstance(norm, str) else ""
-        cols_norm.append((c if isinstance(c, str) else (str(c) if c is not None else None), low))
+        cols_norm.append(
+            (c if isinstance(c, str) else (str(c) if c is not None else None), low)
+        )
     for cand in candidates:
         cand_low = cand.lower()
         # exact
@@ -217,30 +246,64 @@ def find_column(candidates: List[str], cols: List[str]) -> Optional[str]:
 def map_punctuality_columns(df: pd.DataFrame) -> Dict[str, Optional[str]]:
     cols = list(df.columns)
     mapping = {
-        "route_number": find_column([
-            "Linie", "Line", "Route", "Liniennummer", "Liniennr", "Linien-Nr", "Linientext"
-        ], cols),
-        "stop_name": find_column([
-            "Haltestelle", "Halt", "Stop", "Haltestellenname", "Stop Name"
-        ], cols),
-        "service_date": find_column([
-            "Betriebstag", "Datum", "Fahrtdatum", "Service Date", "Date"
-        ], cols),
-        "scheduled_time": find_column([
-            "Sollzeit", "Soll-Abfahrt", "Planzeit", "Geplante Zeit", "Abfahrtszeit (Soll)", "Fahrplanzeit", "Plan", "Soll"
-        ], cols),
-        "actual_time": find_column([
-            "Istzeit", "Ist-Abfahrt", "Istzeitpunkt", "Tatsächliche Zeit", "Abfahrtszeit (Ist)", "Ist"
-        ], cols),
-        "delay_minutes": find_column([
-            "Verspätung", "+/-", "Abweichung", "Delay", "Minuten"
-        ], cols),
-        "trip_id": find_column([
-            "Fahrt", "Fahrtnummer", "Trip", "Trip-ID", "Umlauf"
-        ], cols),
-        "stop_sequence": find_column([
-            "Haltestellenreihenfolge", "Reihenfolge", "Sequenz", "Stop Sequence", "Haltesequenz"
-        ], cols),
+        "route_number": find_column(
+            [
+                "Linie",
+                "Line",
+                "Route",
+                "Liniennummer",
+                "Liniennr",
+                "Linien-Nr",
+                "Linientext",
+            ],
+            cols,
+        ),
+        "stop_name": find_column(
+            ["Haltestelle", "Halt", "Stop", "Haltestellenname", "Stop Name"], cols
+        ),
+        "service_date": find_column(
+            ["Betriebstag", "Datum", "Fahrtdatum", "Service Date", "Date"], cols
+        ),
+        "scheduled_time": find_column(
+            [
+                "Sollzeit",
+                "Soll-Abfahrt",
+                "Planzeit",
+                "Geplante Zeit",
+                "Abfahrtszeit (Soll)",
+                "Fahrplanzeit",
+                "Plan",
+                "Soll",
+            ],
+            cols,
+        ),
+        "actual_time": find_column(
+            [
+                "Istzeit",
+                "Ist-Abfahrt",
+                "Istzeitpunkt",
+                "Tatsächliche Zeit",
+                "Abfahrtszeit (Ist)",
+                "Ist",
+            ],
+            cols,
+        ),
+        "delay_minutes": find_column(
+            ["Verspätung", "+/-", "Abweichung", "Delay", "Minuten"], cols
+        ),
+        "trip_id": find_column(
+            ["Fahrt", "Fahrtnummer", "Trip", "Trip-ID", "Umlauf"], cols
+        ),
+        "stop_sequence": find_column(
+            [
+                "Haltestellenreihenfolge",
+                "Reihenfolge",
+                "Sequenz",
+                "Stop Sequence",
+                "Haltesequenz",
+            ],
+            cols,
+        ),
     }
     return mapping
 
@@ -260,7 +323,14 @@ def extract_passenger_tables_from_pdf(pdf_path: str) -> pd.DataFrame:
         import pdfplumber  # type: ignore
     except Exception as e:
         print(f"pdfplumber nicht verfügbar: {e}")
-        return pd.DataFrame(columns=["stop_name", "route_number", "daily_passengers", "annual_passengers"])
+        return pd.DataFrame(
+            columns=[
+                "stop_name",
+                "route_number",
+                "daily_passengers",
+                "annual_passengers",
+            ]
+        )
 
     all_rows: List[List[str]] = []
     with pdfplumber.open(pdf_path) as pdf:
@@ -281,10 +351,26 @@ def extract_passenger_tables_from_pdf(pdf_path: str) -> pd.DataFrame:
                     all_rows.append([normalize_whitespace(c) or "" for c in row])
 
     if not all_rows:
-        return pd.DataFrame(columns=["stop_name", "route_number", "daily_passengers", "annual_passengers"])
+        return pd.DataFrame(
+            columns=[
+                "stop_name",
+                "route_number",
+                "daily_passengers",
+                "annual_passengers",
+            ]
+        )
 
     # Find header row by keywords
-    header_keywords = ["linie", "haltestelle", "mo", "fr", "jahr", "summe", "gesamt", "durchschnitt"]
+    header_keywords = [
+        "linie",
+        "haltestelle",
+        "mo",
+        "fr",
+        "jahr",
+        "summe",
+        "gesamt",
+        "durchschnitt",
+    ]
     header_idx = 0
     best_score = -1
     for idx, row in enumerate(all_rows[:50]):
@@ -303,12 +389,23 @@ def extract_passenger_tables_from_pdf(pdf_path: str) -> pd.DataFrame:
             except Exception:
                 return ""
         return ""
-    df = pd.DataFrame(body, columns=[f"col_{i}_{hdr_val(i)}" for i in range(len(header))])
+
+    df = pd.DataFrame(
+        body, columns=[f"col_{i}_{hdr_val(i)}" for i in range(len(header))]
+    )
     # Attempt to map columns
-    stop_col = find_column(["Haltestelle", "Haltestellenname", "Stop"], list(df.columns) + header)
-    line_col = find_column(["Linie", "Liniennummer", "Line", "Route"], list(df.columns) + header)
-    daily_col = find_column(["Mo-Fr", "Mo–Fr", "Durchschnitt", "Ø", "Werktag"], list(df.columns) + header)
-    annual_col = find_column(["Jahr", "Summe", "Gesamt", "Jahres", "p.a."], list(df.columns) + header)
+    stop_col = find_column(
+        ["Haltestelle", "Haltestellenname", "Stop"], list(df.columns) + header
+    )
+    line_col = find_column(
+        ["Linie", "Liniennummer", "Line", "Route"], list(df.columns) + header
+    )
+    daily_col = find_column(
+        ["Mo-Fr", "Mo–Fr", "Durchschnitt", "Ø", "Werktag"], list(df.columns) + header
+    )
+    annual_col = find_column(
+        ["Jahr", "Summe", "Gesamt", "Jahres", "p.a."], list(df.columns) + header
+    )
 
     # If mapping failed, try heuristics by value patterns
     def choose_col_by_values(candidate_cols: List[str], pattern: str) -> Optional[str]:
@@ -326,33 +423,55 @@ def extract_passenger_tables_from_pdf(pdf_path: str) -> pd.DataFrame:
         return best
 
     if stop_col is None:
-        stop_col = choose_col_by_values(list(df.columns), r"[A-Za-zÄÖÜäöüß]"
-                                        )
+        stop_col = choose_col_by_values(list(df.columns), r"[A-Za-zÄÖÜäöüß]")
     if line_col is None:
         line_col = choose_col_by_values(list(df.columns), r"^(\d{1,3}[A-Za-z]?)$")
     if daily_col is None:
-        daily_col = choose_col_by_values(list(df.columns), r"^\d{1,3}(\.|\s)?\d{0,3}(,\d+)?$")
+        daily_col = choose_col_by_values(
+            list(df.columns), r"^\d{1,3}(\.|\s)?\d{0,3}(,\d+)?$"
+        )
     if annual_col is None:
-        annual_col = choose_col_by_values(list(df.columns), r"^\d{1,3}(\.|\s)?\d{3}(\.|\s)?\d{0,3}$")
+        annual_col = choose_col_by_values(
+            list(df.columns), r"^\d{1,3}(\.|\s)?\d{3}(\.|\s)?\d{0,3}$"
+        )
 
     # Build normalized DataFrame
     norm_rows = []
     for _, row in df.iterrows():
-        stop_name = normalize_whitespace(row.get(stop_col)) if stop_col in df.columns else None
-        route_number = normalize_whitespace(row.get(line_col)) if line_col in df.columns else None
-        daily = parse_german_number(row.get(daily_col)) if daily_col in df.columns else None
-        annual = parse_german_number(row.get(annual_col)) if annual_col in df.columns else None
+        stop_name = (
+            normalize_whitespace(row.get(stop_col)) if stop_col in df.columns else None
+        )
+        route_number = (
+            normalize_whitespace(row.get(line_col)) if line_col in df.columns else None
+        )
+        daily = (
+            parse_german_number(row.get(daily_col)) if daily_col in df.columns else None
+        )
+        annual = (
+            parse_german_number(row.get(annual_col))
+            if annual_col in df.columns
+            else None
+        )
         if stop_name is None or route_number is None:
             # Some PDFs might list stop once and multiple lines in columns; skip such complex forms
             continue
-        norm_rows.append({
-            "stop_name": stop_name,
-            "route_number": route_number,
-            "daily_passengers": daily,
-            "annual_passengers": annual,
-        })
+        norm_rows.append(
+            {
+                "stop_name": stop_name,
+                "route_number": route_number,
+                "daily_passengers": daily,
+                "annual_passengers": annual,
+            }
+        )
     if not norm_rows:
-        return pd.DataFrame(columns=["stop_name", "route_number", "daily_passengers", "annual_passengers"])
+        return pd.DataFrame(
+            columns=[
+                "stop_name",
+                "route_number",
+                "daily_passengers",
+                "annual_passengers",
+            ]
+        )
     out = pd.DataFrame(norm_rows).drop_duplicates()
     return out
 
@@ -368,7 +487,11 @@ def build_database(
     df_csv_raw = read_punctuality_csv(csv_path)
     csv_map = map_punctuality_columns(df_csv_raw)
     # Fallback-Heuristiken für spezielle Pünktlichkeitsanalyse-CSV (Positionsbasiert)
-    if (csv_map.get("stop_name") is None) or (csv_map.get("service_date") is None) or (csv_map.get("delay_minutes") is None):
+    if (
+        (csv_map.get("stop_name") is None)
+        or (csv_map.get("service_date") is None)
+        or (csv_map.get("delay_minutes") is None)
+    ):
         event_col = detect_event_text_column(df_csv_raw)
         try:
             ncols = df_csv_raw.shape[1]
@@ -393,21 +516,45 @@ def build_database(
             df_csv_raw["__route_number"] = df_csv_raw.iloc[:, 1]
             csv_map["route_number"] = "__route_number"
 
-    missing = [k for k, v in csv_map.items() if v is None and k in {"route_number", "stop_name", "service_date"}]
+    missing = [
+        k
+        for k, v in csv_map.items()
+        if v is None and k in {"route_number", "stop_name", "service_date"}
+    ]
     if missing:
-        print(f"Warnung: folgende Pflichtspalten wurden nicht eindeutig gefunden: {missing}")
+        print(
+            f"Warnung: folgende Pflichtspalten wurden nicht eindeutig gefunden: {missing}"
+        )
 
     # Normalize CSV
-    df_csv = pd.DataFrame({
-        "route_number": df_csv_raw.get(csv_map["route_number"]) if csv_map["route_number"] else None,
-        "stop_name": df_csv_raw.get(csv_map["stop_name"]) if csv_map["stop_name"] else None,
-        "service_date": df_csv_raw.get(csv_map["service_date"]) if csv_map["service_date"] else None,
-        "scheduled_time": df_csv_raw.get(csv_map["scheduled_time"]) if csv_map["scheduled_time"] else None,
-        "actual_time": df_csv_raw.get(csv_map["actual_time"]) if csv_map["actual_time"] else None,
-        "delay_minutes": df_csv_raw.get(csv_map["delay_minutes"]) if csv_map["delay_minutes"] else None,
-        "trip_id": df_csv_raw.get(csv_map["trip_id"]) if csv_map["trip_id"] else None,
-        "stop_sequence": df_csv_raw.get(csv_map["stop_sequence"]) if csv_map["stop_sequence"] else None,
-    })
+    df_csv = pd.DataFrame(
+        {
+            "route_number": df_csv_raw.get(csv_map["route_number"])
+            if csv_map["route_number"]
+            else None,
+            "stop_name": df_csv_raw.get(csv_map["stop_name"])
+            if csv_map["stop_name"]
+            else None,
+            "service_date": df_csv_raw.get(csv_map["service_date"])
+            if csv_map["service_date"]
+            else None,
+            "scheduled_time": df_csv_raw.get(csv_map["scheduled_time"])
+            if csv_map["scheduled_time"]
+            else None,
+            "actual_time": df_csv_raw.get(csv_map["actual_time"])
+            if csv_map["actual_time"]
+            else None,
+            "delay_minutes": df_csv_raw.get(csv_map["delay_minutes"])
+            if csv_map["delay_minutes"]
+            else None,
+            "trip_id": df_csv_raw.get(csv_map["trip_id"])
+            if csv_map["trip_id"]
+            else None,
+            "stop_sequence": df_csv_raw.get(csv_map["stop_sequence"])
+            if csv_map["stop_sequence"]
+            else None,
+        }
+    )
     # Clean
     for col in ["route_number", "stop_name"]:
         df_csv[col] = df_csv[col].map(normalize_whitespace)
@@ -447,12 +594,17 @@ def build_database(
                 return None
             diff = (t_act - t_plan) / 60.0
             return diff
+
         df_csv["delay_minutes"] = df_csv.apply(diff_minutes, axis=1)
     if "stop_sequence" in df_csv:
-        df_csv["stop_sequence"] = pd.to_numeric(df_csv["stop_sequence"], errors="coerce")
+        df_csv["stop_sequence"] = pd.to_numeric(
+            df_csv["stop_sequence"], errors="coerce"
+        )
 
     # Drop rows without essential identifiers
-    df_csv = df_csv.dropna(subset=["route_number", "stop_name", "service_date"], how="any").reset_index(drop=True)
+    df_csv = df_csv.dropna(
+        subset=["route_number", "stop_name", "service_date"], how="any"
+    ).reset_index(drop=True)
 
     # PDF passengers
     print(f"Lese PDF: {pdf_path}")
@@ -460,7 +612,9 @@ def build_database(
     if not df_pdf.empty:
         for col in ["route_number", "stop_name"]:
             df_pdf[col] = df_pdf[col].map(normalize_whitespace)
-        df_pdf = df_pdf.dropna(subset=["route_number", "stop_name"], how="any").reset_index(drop=True)
+        df_pdf = df_pdf.dropna(
+            subset=["route_number", "stop_name"], how="any"
+        ).reset_index(drop=True)
 
     # Create SQLite DB
     if os.path.exists(db_path):
@@ -475,7 +629,9 @@ def build_database(
                 stop_id INTEGER PRIMARY KEY AUTOINCREMENT,
                 stop_name TEXT,
                 daily_passengers REAL,
-                annual_passengers REAL
+                annual_passengers REAL,
+                lat REAL,
+                lon REAL
             );
             """
         ),
@@ -528,12 +684,21 @@ def build_database(
     stop_passenger_map: Dict[str, Tuple[Optional[float], Optional[float]]] = {}
     if not df_pdf.empty:
         # Aggregate by stop (if multiple lines have different values, pick max of annual and daily)
-        grp = df_pdf.groupby("stop_name").agg({
-            "daily_passengers": lambda x: float(pd.Series(x).dropna().max()) if pd.Series(x).dropna().size > 0 else None,
-            "annual_passengers": lambda x: float(pd.Series(x).dropna().max()) if pd.Series(x).dropna().size > 0 else None,
-        })
+        grp = df_pdf.groupby("stop_name").agg(
+            {
+                "daily_passengers": lambda x: float(pd.Series(x).dropna().max())
+                if pd.Series(x).dropna().size > 0
+                else None,
+                "annual_passengers": lambda x: float(pd.Series(x).dropna().max())
+                if pd.Series(x).dropna().size > 0
+                else None,
+            }
+        )
         for stop_name, row in grp.iterrows():
-            stop_passenger_map[stop_name] = (row.get("daily_passengers"), row.get("annual_passengers"))
+            stop_passenger_map[stop_name] = (
+                row.get("daily_passengers"),
+                row.get("annual_passengers"),
+            )
 
     # Also include stops present in PDF but not in CSV
     if not df_pdf.empty:
@@ -566,30 +731,121 @@ def build_database(
 
     conn.commit()
 
+    # Load coordinates from neumarktfull.txt file
+    coords_file = "neumarktfull.txt"
+    if os.path.exists(coords_file):
+        print(f"Loading coordinates from {coords_file}")
+        coords_map = {}
+        try:
+            with open(coords_file, "r", encoding="utf-8") as f:
+                for line in f:
+                    line = line.strip()
+                    if not line:
+                        continue
+                    parts = line.split(",")
+                    if len(parts) >= 5:
+                        stop_name = parts[0].strip()
+                        try:
+                            lat = float(parts[3])
+                            lon = float(parts[4])
+                            # Use first coordinate entry found for each stop name
+                            if stop_name not in coords_map:
+                                coords_map[stop_name] = (lat, lon)
+                        except (ValueError, IndexError):
+                            continue
+
+            # Update database with coordinates
+            updated = 0
+            for stop_name, (lat, lon) in coords_map.items():
+                # First try exact match
+                cur.execute(
+                    "UPDATE stops SET lat = ?, lon = ? WHERE stop_name = ?",
+                    (lat, lon, stop_name),
+                )
+                if cur.rowcount > 0:
+                    updated += 1
+                    print(f"Updated: {stop_name} -> {lat:.6f},{lon:.6f}")
+
+                # Then try matching by stripping numbers from database stop names
+                # Get all stops that don't have coordinates yet
+                cur.execute(
+                    "SELECT stop_id, stop_name FROM stops WHERE lat IS NULL OR lon IS NULL"
+                )
+                unmatched_stops = cur.fetchall()
+
+                for stop_id, db_stop_name in unmatched_stops:
+                    # Strip numbers from the end of database stop name
+                    import re
+
+                    stripped_name = re.sub(r"\s+\d+$", "", db_stop_name)
+                    if stripped_name == stop_name:
+                        cur.execute(
+                            "UPDATE stops SET lat = ?, lon = ? WHERE stop_id = ?",
+                            (lat, lon, stop_id),
+                        )
+                        if cur.rowcount > 0:
+                            updated += 1
+                            print(
+                                f"Updated: {db_stop_name} (matched to {stop_name}) -> {lat:.6f},{lon:.6f}"
+                            )
+
+            conn.commit()
+            print(f"Applied coordinates from {coords_file}. Updated {updated} stops.")
+        except Exception as e:
+            print(f"Error loading coordinates from {coords_file}: {e}")
+    else:
+        print(f"Warning: {coords_file} not found. No coordinates will be loaded.")
+
     # route_stops: determine stop_sequence
     # Prefer explicit sequence from CSV
     route_stop_sequence: Dict[Tuple[str, str], int] = {}
     if "stop_sequence" in df_csv.columns and df_csv["stop_sequence"].notna().any():
-        tmp = df_csv.dropna(subset=["route_number", "stop_name", "stop_sequence"]).copy()
+        tmp = df_csv.dropna(
+            subset=["route_number", "stop_name", "stop_sequence"]
+        ).copy()
         tmp["stop_sequence"] = pd.to_numeric(tmp["stop_sequence"], errors="coerce")
-        tmp = tmp.dropna(subset=["stop_sequence"]).groupby(["route_number", "stop_name"])['stop_sequence'].median().reset_index()
+        tmp = (
+            tmp.dropna(subset=["stop_sequence"])
+            .groupby(["route_number", "stop_name"])["stop_sequence"]
+            .median()
+            .reset_index()
+        )
         for _, row in tmp.iterrows():
-            route_stop_sequence[(row["route_number"], row["stop_name"])]= int(round(float(row["stop_sequence"])) )
+            route_stop_sequence[(row["route_number"], row["stop_name"])] = int(
+                round(float(row["stop_sequence"]))
+            )
 
     # If not available, infer by median time-of-day per stop within each route
-    missing_pairs = set((r, s) for r in unique_routes for s in unique_stops if (r, s) not in route_stop_sequence)
+    missing_pairs = set(
+        (r, s)
+        for r in unique_routes
+        for s in unique_stops
+        if (r, s) not in route_stop_sequence
+    )
     if missing_pairs:
         time_basis = df_csv.copy()
         # choose scheduled_time, else actual_time
         time_basis["time_seconds"] = time_basis.apply(
-            lambda r: time_to_seconds(r["scheduled_time"]) if pd.notna(r.get("scheduled_time")) else time_to_seconds(r.get("actual_time")),
+            lambda r: time_to_seconds(r["scheduled_time"])
+            if pd.notna(r.get("scheduled_time"))
+            else time_to_seconds(r.get("actual_time")),
             axis=1,
         )
-        time_basis = time_basis.dropna(subset=["route_number", "stop_name", "time_seconds"])  # type: ignore
+        time_basis = time_basis.dropna(
+            subset=["route_number", "stop_name", "time_seconds"]
+        )  # type: ignore
         if not time_basis.empty:
-            tmp = time_basis.groupby(["route_number", "stop_name"])['time_seconds'].median().reset_index()
+            tmp = (
+                time_basis.groupby(["route_number", "stop_name"])["time_seconds"]
+                .median()
+                .reset_index()
+            )
             # Rank within each route
-            tmp["stop_sequence"] = tmp.groupby("route_number")["time_seconds"].rank(method="dense").astype(int)
+            tmp["stop_sequence"] = (
+                tmp.groupby("route_number")["time_seconds"]
+                .rank(method="dense")
+                .astype(int)
+            )
             for _, row in tmp.iterrows():
                 key = (row["route_number"], row["stop_name"])  # type: ignore
                 route_stop_sequence.setdefault(key, int(row["stop_sequence"]))
@@ -599,7 +855,9 @@ def build_database(
     # Build mapping of stops present per route from CSV
     pairs_from_csv = df_csv.dropna(subset=["route_number", "stop_name"]).copy()
     if not pairs_from_csv.empty:
-        for _, row in pairs_from_csv[["route_number", "stop_name"]].drop_duplicates().iterrows():
+        for _, row in (
+            pairs_from_csv[["route_number", "stop_name"]].drop_duplicates().iterrows()
+        ):
             route_number = row["route_number"]
             stop_name = row["stop_name"]
             if route_number not in route_to_id or stop_name not in stop_to_id:
@@ -621,14 +879,18 @@ def build_database(
         stop_name = row.get("stop_name")
         if route_number not in route_to_id or stop_name not in stop_to_id:
             continue
-        batch.append((
-            route_to_id[route_number],
-            stop_to_id[stop_name],
-            row.get("service_date"),
-            row.get("scheduled_time"),
-            row.get("actual_time"),
-            float(row.get("delay_minutes")) if pd.notna(row.get("delay_minutes")) else None,
-        ))
+        batch.append(
+            (
+                route_to_id[route_number],
+                stop_to_id[stop_name],
+                row.get("service_date"),
+                row.get("scheduled_time"),
+                row.get("actual_time"),
+                float(row.get("delay_minutes"))
+                if pd.notna(row.get("delay_minutes"))
+                else None,
+            )
+        )
     cur.executemany(
         "INSERT INTO performance_metrics (route_id, stop_id, service_date, scheduled_time, actual_time, delay_minutes) VALUES (?, ?, ?, ?, ?, ?)",
         batch,
@@ -644,7 +906,9 @@ def build_database(
 
     # Export schema
     with open(schema_out, "w", encoding="utf-8") as f:
-        for row in cur.execute("SELECT sql FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"):
+        for row in cur.execute(
+            "SELECT sql FROM sqlite_schema WHERE type='table' AND name NOT LIKE 'sqlite_%' ORDER BY name"
+        ):
             if row[0]:
                 f.write(row[0].strip() + ";\n\n")
 
@@ -656,7 +920,11 @@ def build_database(
         cur.execute(f"SELECT * FROM {table} LIMIT 5")
         rows = cur.fetchall()
         col_names = [d[0] for d in cur.description]
-        print(json.dumps({"columns": col_names, "rows": rows}, ensure_ascii=False, indent=2))
+        print(
+            json.dumps(
+                {"columns": col_names, "rows": rows}, ensure_ascii=False, indent=2
+            )
+        )
 
     conn.close()
     print(f"Fertig. DB: {db_path}, Schema: {schema_out}")
@@ -664,7 +932,9 @@ def build_database(
 
 def main():
     # Default paths based on workspace
-    default_csv = "20250805_Neumarkt 01.01.2025 - 31.07.2025.xlsx - Pünktlichkeitsanalyse.csv"
+    default_csv = (
+        "20250805_Neumarkt 01.01.2025 - 31.07.2025.xlsx - Pünktlichkeitsanalyse.csv"
+    )
     default_pdf = "2024 Haltestellenbezogene Fahrgastzahlen.pdf"
 
     csv_path = sys.argv[1] if len(sys.argv) > 1 else default_csv
@@ -682,5 +952,3 @@ def main():
 
 if __name__ == "__main__":
     main()
-
-

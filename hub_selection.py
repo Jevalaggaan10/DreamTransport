@@ -538,10 +538,73 @@ def run_pipeline(
         print(f"Auto-picked p = {p}")
     else:
         print(f"Using fixed p = {p}")
-    # Candidate set: top K by score, using de-duplicated base stops
+    # Candidate set: spatially diverse by farthest-first on coordinates (if present)
     K = min(len(scored_dedup), max(10, candidate_multiplier * p))
-    candidates = scored_dedup.sort_values("score", ascending=False).head(K)
-    candidate_ids = candidates["stop_id"].tolist()
+    coords_map: Dict[int, Tuple[float, float]] = {}
+    if coords_df is not None and {"stop_id", "lat", "lon"}.issubset(
+        set(coords_df.columns.str.lower())
+    ):
+        # normalize column names in case
+        cdf = coords_df.copy()
+        # ensure columns are exactly lat/lon
+        if "lat" not in cdf.columns:
+            for c in cdf.columns:
+                if c.lower() == "lat":
+                    cdf.rename(columns={c: "lat"}, inplace=True)
+        if "lon" not in cdf.columns:
+            for c in cdf.columns:
+                if c.lower() in ("lon", "lng", "longitude"):
+                    cdf.rename(columns={c: "lon"}, inplace=True)
+        for _, r in cdf.dropna(subset=["lat", "lon"]).iterrows():
+            try:
+                coords_map[int(r["stop_id"])] = (float(r["lat"]), float(r["lon"]))
+            except Exception:
+                continue
+
+    def geo_dist_km(a: Tuple[float, float], b: Tuple[float, float]) -> float:
+        return haversine_km(a[0], a[1], b[0], b[1])
+
+    cand_df = scored_dedup.sort_values("score", ascending=False).reset_index(drop=True)
+    if coords_map:
+        seeds: List[int] = []
+        # pick best-scored with coords as first seed
+        for _, row in cand_df.iterrows():
+            sid = int(row["stop_id"])
+            if sid in coords_map:
+                seeds.append(sid)
+                break
+        # farthest-first until K
+        while len(seeds) < K:
+            best_sid = None
+            best_d = -1.0
+            for _, row in cand_df.iterrows():
+                sid = int(row["stop_id"])
+                if sid in seeds or sid not in coords_map:
+                    continue
+                dmin = (
+                    min(geo_dist_km(coords_map[sid], coords_map[sj]) for sj in seeds)
+                    if seeds
+                    else 1e9
+                )
+                if dmin > best_d:
+                    best_d = dmin
+                    best_sid = sid
+            if best_sid is None:
+                break
+            seeds.append(best_sid)
+        # fill if fewer than K
+        if len(seeds) < K:
+            for _, row in cand_df.iterrows():
+                sid = int(row["stop_id"])
+                if sid not in seeds:
+                    seeds.append(sid)
+                if len(seeds) >= K:
+                    break
+        candidate_ids = seeds[:K]
+        candidates = cand_df[cand_df["stop_id"].isin(candidate_ids)]
+    else:
+        candidates = cand_df.head(K)
+        candidate_ids = candidates["stop_id"].tolist()
     # Build dist matrix from all stops to candidate stops (N x K)
     id_to_idx_local = id_to_idx
     N = len(all_stop_ids)
