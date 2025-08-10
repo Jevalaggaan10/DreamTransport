@@ -1,0 +1,27 @@
+Fully Computable Heuristics for Hub & Spoke Optimization
+
+1. Passenger-Weighted Average Hops to Nearest Hub
+   - Measures: Minimum number of hops (edges) from each stop to the nearest hub, weighted by passenger volume.
+   - Goal: Lower values mean faster access to hubs with fewer transfers.
+
+2. Passenger-Weighted Average Route Length
+   - Measures: Total length (in hops) of each route, weighted by passenger volume.
+   - Goal: Shorter, more direct routes improve efficiency and reliability.
+
+3. Hub Load Coefficient of Variation (CV)
+   - Measures: How evenly passenger loads are distributed across hubs.
+     CV = (standard deviation / mean) of hub loads.
+   - Goal: Lower values mean more balanced load distribution.
+
+4. Maximum Hops in the Network
+   - Measures: Longest shortest-path distance between any two connected stops.
+   - Goal: Avoid overly long indirect connections in the network.
+
+5. Directness Ratio
+   - Measures: Ratio of direct trips (same route, no transfers) to all trips in the OD set.
+   - Goal: Higher ratio means more direct service and fewer transfers.
+
+6. Route Complexity
+   - Measures: Average number of branching points and detours in each route,
+     based on changes in direction in the network graph.
+   - Goal: Lower complexity means simpler, easier-to-use routes.

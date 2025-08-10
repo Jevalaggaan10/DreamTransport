@@ -1,0 +1,22 @@
+[
+  {
+    "stop_id": "149",
+    "stop_name": "Neumarkt i.d. OPf. Saarlandstr. 1",
+    "daily_passengers": null
+  },
+  {
+    "stop_id": "14",
+    "stop_name": "Neumarkt i.d. OPf. BRK-Altenheim 1",
+    "daily_passengers": null
+  },
+  {
+    "stop_id": "77",
+    "stop_name": "Neumarkt i.d. OPf. Kerschensteinerstr. 1",
+    "daily_passengers": null
+  },
+  {
+    "stop_id": "161",
+    "stop_name": "Neumarkt i.d. OPf. St.-Anna-Str. 1",
+    "daily_passengers": null
+  }
+]
